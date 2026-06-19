@@ -151,6 +151,23 @@ function resetGame() {
   showBanner("Free the animals. Every rescue adds another gun barrel.");
 }
 
+function initializeStartState() {
+  state.player = createPlayer("rat");
+  state.cages = cageBlueprints.map((cage, index) => ({
+    ...cage,
+    id: index,
+    freed: false,
+  }));
+  state.enemies = [];
+  state.pendingSpawns = [];
+  state.healthPacks = [];
+  state.unlockedAnimals = ["rat"];
+  state.victory = false;
+  state.gameOver = false;
+  state.started = false;
+  state.paused = false;
+}
+
 function spawnEnemies(count) {
   queueEnemySpawns(count, 0);
 }
@@ -897,5 +914,6 @@ startButton.addEventListener("click", () => {
   resetGame();
 });
 
+initializeStartState();
 updatePanels();
 requestAnimationFrame(loop);
