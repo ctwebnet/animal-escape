@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animal Escape</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="hud-panel">
+        <div>
+          <p class="eyebrow">Prototype</p>
+          <h1>Animal Escape</h1>
+          <p class="summary">
+            Free the caged animals, dodge the gunners, and switch between rescued
+            animals to use their abilities.
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>Controls</h2>
+          <ul>
+            <li><span>Move</span><strong>WASD / Arrows</strong></li>
+            <li><span>Free cage</span><strong>E</strong></li>
+            <li><span>Use ability</span><strong>Space</strong></li>
+            <li><span>Switch animals</span><strong>1-5</strong></li>
+          </ul>
+        </div>
+
+        <div class="card" id="animalList"></div>
+        <div class="card" id="statusPanel"></div>
+      </section>
+
+      <section class="game-shell">
+        <div class="top-bar" id="topBar"></div>
+        <div class="canvas-wrap">
+          <canvas id="game" width="960" height="600" aria-label="Animal Escape game"></canvas>
+          <div class="start-overlay" id="startOverlay">
+            <div class="start-card">
+              <p class="eyebrow">Breakout Begins</p>
+              <h2>Animal Escape</h2>
+              <p class="summary">Free every animal, survive the guards, then reach the exit to win.</p>
+              <button class="start-button" id="startButton" type="button">Start Game</button>
+            </div>
+          </div>
+        </div>
+        <div class="banner" id="banner"></div>
+      </section>
+    </main>
+
+    <script src="./game.js"></script>
+  </body>
+</html>
