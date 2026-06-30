@@ -192,16 +192,19 @@ function isFinalCageLocked(cage) {
 }
 
 function spawnBoss() {
+  const position = randomOpenPosition(110, 140, [state.player, ...state.cages.filter((cage) => !cage.freed), ...state.enemies]);
   state.boss = {
-    x: world.width / 2,
-    y: 92,
+    x: position.x,
+    y: position.y,
     radius: 34,
     hp: 280,
     maxHp: 280,
     fireCooldown: 1.15,
     fireTimer: 0.8,
     angle: 0,
+    weakSpotRadius: 11,
   };
+  queueRandomBoardSpawns(6, 0.15);
 }
 
 function spawnEnemies(count) {
@@ -225,12 +228,49 @@ function queueEnemySpawns(count, delay = 0.7) {
     );
     const spawnPool = viableSpawns.length > 0 ? viableSpawns : edgeSpawns;
     const slot = spawnPool[(state.enemies.length + state.pendingSpawns.length + i) % spawnPool.length];
+    const spawnPosition = findReinforcementPosition(slot);
     state.pendingSpawns.push({
-      x: slot.x + Math.random() * 40 - 20,
-      y: slot.y + Math.random() * 40 - 20,
+      x: spawnPosition.x,
+      y: spawnPosition.y,
       timer: delay + i * 0.12,
     });
   }
+}
+
+function queueRandomBoardSpawns(count, delay = 0.4) {
+  for (let i = 0; i < count; i += 1) {
+    const blockers = [
+      state.player,
+      ...(state.boss ? [state.boss] : []),
+      ...state.enemies,
+      ...state.pendingSpawns,
+      ...state.cages.filter((cage) => !cage.freed),
+    ];
+    const spawnPosition = randomOpenPosition(60, 48, blockers);
+    state.pendingSpawns.push({
+      x: spawnPosition.x,
+      y: spawnPosition.y,
+      timer: delay + i * 0.08,
+    });
+  }
+}
+
+function findReinforcementPosition(slot) {
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    const candidate = {
+      x: clamp(slot.x + Math.random() * 44 - 22, 24, world.width - 24),
+      y: clamp(slot.y + Math.random() * 44 - 22, 24, world.height - 24),
+    };
+    const overlapsEnemy = state.enemies.some((enemy) => distance(candidate, enemy) < enemy.radius * 2 + 10);
+    const overlapsPending = state.pendingSpawns.some((spawn) => distance(candidate, spawn) < 52);
+    const overlapsBoss = state.boss && distance(candidate, state.boss) < state.boss.radius + 40;
+
+    if (!overlapsEnemy && !overlapsPending && !overlapsBoss) {
+      return candidate;
+    }
+  }
+
+  return { x: slot.x, y: slot.y };
 }
 
 function materializeEnemy(spawn) {
@@ -273,6 +313,25 @@ function spawnHealthPack() {
 
     attempts += 1;
   }
+}
+
+function randomOpenPosition(margin, separation, blockers = []) {
+  for (let attempts = 0; attempts < 30; attempts += 1) {
+    const candidate = {
+      x: margin + Math.random() * (world.width - margin * 2),
+      y: margin + Math.random() * (world.height - margin * 2),
+    };
+    const overlaps = blockers.some((item) => {
+      const radius = item.radius ?? 24;
+      return distance(candidate, item) < separation + radius;
+    });
+
+    if (!overlaps) {
+      return candidate;
+    }
+  }
+
+  return { x: world.width / 2, y: world.height / 2 };
 }
 
 function currentAnimal() {
@@ -372,7 +431,7 @@ function activateAbility() {
   }
 
   const nearby = state.enemies.filter((enemy) => distance(state.player, enemy) < 88);
-  const bossInRange = state.boss && distance(state.player, state.boss) < 108 ? state.boss : null;
+  const bossInRange = state.boss && distance(state.player, bossWeakSpotPosition()) < 104 ? state.boss : null;
 
   if (form === "elephant") {
     state.player.effectTimer = 0.5;
@@ -448,6 +507,18 @@ function damageBoss(amount) {
     state.bossDefeated = true;
     showBanner("Boss defeated. The last cage is unlocked.");
   }
+}
+
+function bossWeakSpotPosition() {
+  if (!state.boss) {
+    return null;
+  }
+
+  const offset = state.boss.radius - 2;
+  return {
+    x: state.boss.x - Math.cos(state.boss.angle) * offset,
+    y: state.boss.y - Math.sin(state.boss.angle) * offset,
+  };
 }
 
 function pickupEnemyByBird(enemy) {
@@ -792,6 +863,7 @@ function drawBoss() {
 
   const boss = state.boss;
   const healthRatio = clamp(boss.hp / boss.maxHp, 0, 1);
+  const weakSpot = bossWeakSpotPosition();
 
   ctx.save();
   ctx.translate(boss.x, boss.y - boss.radius - 16);
@@ -811,6 +883,19 @@ function drawBoss() {
   ctx.fillStyle = "#f2cb6b";
   ctx.fillRect(4, -10, 36, 8);
   ctx.fillRect(4, 2, 36, 8);
+  ctx.fillStyle = "#781f1d";
+  ctx.beginPath();
+  ctx.arc(-boss.radius + 12, 0, boss.weakSpotRadius + 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = "#fff4a8";
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#f2cb6b";
+  ctx.beginPath();
+  ctx.arc(weakSpot.x, weakSpot.y, boss.weakSpotRadius, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
