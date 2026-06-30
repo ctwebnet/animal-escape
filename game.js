@@ -92,6 +92,7 @@ const keys = new Set();
 const state = {
   player: null,
   enemies: [],
+  boss: null,
   bullets: [],
   pendingSpawns: [],
   healthPacks: [],
@@ -99,6 +100,7 @@ const state = {
   cages: [],
   unlockedAnimals: ["rat"],
   enemiesDisabled: 0,
+  bossDefeated: false,
   victory: false,
   gameOver: false,
   started: false,
@@ -133,6 +135,8 @@ function resetGame() {
   state.healthPacks = [];
   state.healthPackTimer = 7;
   state.enemiesDisabled = 0;
+  state.boss = null;
+  state.bossDefeated = false;
   state.victory = false;
   state.gameOver = false;
   state.started = true;
@@ -159,13 +163,45 @@ function initializeStartState() {
     freed: false,
   }));
   state.enemies = [];
+  state.boss = null;
   state.pendingSpawns = [];
   state.healthPacks = [];
   state.unlockedAnimals = ["rat"];
+  state.bossDefeated = false;
   state.victory = false;
   state.gameOver = false;
   state.started = false;
   state.paused = false;
+}
+
+function rescuedAnimalCount() {
+  return state.cages.filter((cage) => cage.freed).length;
+}
+
+function finalLockedCage() {
+  if (rescuedAnimalCount() !== 3 || state.bossDefeated) {
+    return null;
+  }
+
+  return state.cages.find((cage) => !cage.freed) || null;
+}
+
+function isFinalCageLocked(cage) {
+  const locked = finalLockedCage();
+  return Boolean(locked && locked.id === cage.id);
+}
+
+function spawnBoss() {
+  state.boss = {
+    x: world.width / 2,
+    y: 92,
+    radius: 34,
+    hp: 280,
+    maxHp: 280,
+    fireCooldown: 1.15,
+    fireTimer: 0.8,
+    angle: 0,
+  };
 }
 
 function spawnEnemies(count) {
@@ -276,12 +312,23 @@ function freeNearbyCage() {
     return;
   }
 
+  if (isFinalCageLocked(cage)) {
+    showBanner("The last cage is locked. Beat the boss to free this animal.");
+    return;
+  }
+
   cage.freed = true;
   state.unlockedAnimals.push(cage.animal);
   spawnEnemies(1);
   showBanner(
     `${animals[cage.animal].label} rescued. A new gun barrel joins the hunt. Press ${state.unlockedAnimals.length} to switch.`
   );
+
+  if (rescuedAnimalCount() === 3 && !state.boss && !state.bossDefeated) {
+    spawnBoss();
+    showBanner("Three animals are out. The last cage locks down and the boss arrives.");
+    return;
+  }
 
   if (state.cages.every((item) => item.freed)) {
     state.victory = true;
@@ -325,19 +372,27 @@ function activateAbility() {
   }
 
   const nearby = state.enemies.filter((enemy) => distance(state.player, enemy) < 88);
+  const bossInRange = state.boss && distance(state.player, state.boss) < 108 ? state.boss : null;
 
   if (form === "elephant") {
     state.player.effectTimer = 0.5;
     state.player.effectType = "trample";
     nearby.forEach((enemy) => damageEnemy(enemy, animal.attackDamage));
+    if (bossInRange) {
+      damageBoss(animal.attackDamage);
+    }
     showBanner("Elephant trample flattens nearby gunners.");
     return;
   }
 
   if (form === "fox") {
-    const target = nearestEnemy(62);
+    const target = nearestEnemy(62) || (state.boss && distance(state.player, state.boss) < 70 ? state.boss : null);
     if (target) {
-      damageEnemy(target, animal.attackDamage);
+      if (target === state.boss) {
+        damageBoss(animal.attackDamage);
+      } else {
+        damageEnemy(target, animal.attackDamage);
+      }
       showBanner("Fox bite lands a brutal close strike.");
     }
     return;
@@ -345,6 +400,9 @@ function activateAbility() {
 
   if (form === "wolf") {
     nearby.forEach((enemy) => damageEnemy(enemy, animal.attackDamage));
+    if (bossInRange) {
+      damageBoss(animal.attackDamage);
+    }
     showBanner("Wolf claws rake through a wider melee arc.");
     return;
   }
@@ -376,6 +434,19 @@ function damageEnemy(enemy, amount) {
     state.enemies = state.enemies.filter((item) => item.id !== enemy.id);
     spawnEnemies(2);
     showBanner("A shooter went down, but two more rushed in.");
+  }
+}
+
+function damageBoss(amount) {
+  if (!state.boss) {
+    return;
+  }
+
+  state.boss.hp -= amount;
+  if (state.boss.hp <= 0) {
+    state.boss = null;
+    state.bossDefeated = true;
+    showBanner("Boss defeated. The last cage is unlocked.");
   }
 }
 
@@ -461,6 +532,7 @@ function update(dt, now) {
   updateHealthPacks(dt);
   updatePendingSpawns(dt);
   updateEnemies(dt);
+  updateBoss(dt);
   updateBullets(dt);
 
   state.player.abilityTimer = Math.max(0, state.player.abilityTimer - dt);
@@ -559,6 +631,35 @@ function updateEnemies(dt) {
   });
 }
 
+function updateBoss(dt) {
+  if (!state.boss) {
+    return;
+  }
+
+  const boss = state.boss;
+  const angle = Math.atan2(state.player.y - boss.y, state.player.x - boss.x);
+  boss.angle = angle;
+  boss.fireTimer -= dt;
+
+  if (boss.fireTimer <= 0) {
+    boss.fireTimer = boss.fireCooldown;
+    const speed = 240;
+    const spread = 0.18;
+    [-spread, spread].forEach((offset) => {
+      state.bullets.push({
+        x: boss.x + Math.cos(angle) * 26,
+        y: boss.y + Math.sin(angle) * 26,
+        vx: Math.cos(angle + offset) * speed,
+        vy: Math.sin(angle + offset) * speed,
+        radius: 8,
+        damage: 30,
+        ignoresMultiplier: true,
+        tint: "#f2cb6b",
+      });
+    });
+  }
+}
+
 function updateBullets(dt) {
   const animal = currentAnimal();
 
@@ -577,7 +678,8 @@ function updateBullets(dt) {
     }
 
     if (state.player.invulnerableTimer <= 0 && distance(bullet, state.player) < bullet.radius + state.player.radius) {
-      state.player.hp -= 13 * animal.damageTaken;
+      const damage = bullet.damage ?? 13;
+      state.player.hp -= bullet.ignoresMultiplier ? damage : damage * animal.damageTaken;
       state.player.invulnerableTimer = 0.22;
       return false;
     }
@@ -592,6 +694,7 @@ function render() {
   drawExit();
   drawHealthPacks();
   drawPendingSpawns();
+  drawBoss();
   drawEnemies();
   drawBullets();
   drawPlayer();
@@ -643,6 +746,9 @@ function drawCages() {
     ctx.fillRect(-28, -24, 56, 48);
 
     ctx.strokeStyle = cage.freed ? "#88d498" : "#e3d7c1";
+    if (isFinalCageLocked(cage)) {
+      ctx.strokeStyle = "#f47b65";
+    }
     ctx.lineWidth = 3;
     ctx.strokeRect(-28, -24, 56, 48);
 
@@ -661,7 +767,7 @@ function drawCages() {
     ctx.fillStyle = "#f4f0da";
     ctx.font = "12px Trebuchet MS";
     ctx.textAlign = "center";
-    ctx.fillText(`${index + 2}`, 0, -34);
+    ctx.fillText(isFinalCageLocked(cage) ? "LOCKED" : `${index + 2}`, 0, -34);
     ctx.restore();
   });
 }
@@ -677,6 +783,35 @@ function drawExit() {
   ctx.font = "16px Trebuchet MS";
   ctx.textAlign = "center";
   ctx.fillText("EXIT", world.width - 16, 170);
+}
+
+function drawBoss() {
+  if (!state.boss) {
+    return;
+  }
+
+  const boss = state.boss;
+  const healthRatio = clamp(boss.hp / boss.maxHp, 0, 1);
+
+  ctx.save();
+  ctx.translate(boss.x, boss.y - boss.radius - 16);
+  ctx.fillStyle = "rgba(7, 11, 10, 0.7)";
+  ctx.fillRect(-44, 0, 88, 8);
+  ctx.fillStyle = "#f2cb6b";
+  ctx.fillRect(-44, 0, 88 * healthRatio, 8);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(boss.x, boss.y);
+  ctx.rotate(boss.angle);
+  ctx.fillStyle = "#53201f";
+  ctx.beginPath();
+  ctx.arc(0, 0, boss.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f2cb6b";
+  ctx.fillRect(4, -10, 36, 8);
+  ctx.fillRect(4, 2, 36, 8);
+  ctx.restore();
 }
 
 function drawEnemies() {
@@ -729,8 +864,8 @@ function drawPendingSpawns() {
 }
 
 function drawBullets() {
-  ctx.fillStyle = "#f4f0da";
   state.bullets.forEach((bullet) => {
+    ctx.fillStyle = bullet.tint || "#f4f0da";
     ctx.beginPath();
     ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -818,7 +953,7 @@ function updatePanels() {
       </div>
       <div class="top-bar-meta">
         <div>${Math.ceil(state.player.hp)} / ${animal.maxHealth} health</div>
-        <div>${animal.abilityName} • ${state.enemies.length + state.pendingSpawns.length} shooters active</div>
+        <div>${animal.abilityName} • ${state.enemies.length + state.pendingSpawns.length + (state.boss ? 1 : 0)} threats active</div>
       </div>
     </div>
     <div class="health-track" aria-label="Player health">
@@ -846,8 +981,9 @@ function updatePanels() {
     <h2>Mission Status</h2>
     <div class="status-row"><span>Animals freed</span><strong>${state.unlockedAnimals.length - 1}/${cageBlueprints.length}</strong></div>
     <div class="status-row"><span>Gunners disabled</span><strong>${state.enemiesDisabled}</strong></div>
+    <div class="status-row"><span>Boss</span><strong>${state.boss ? "Active" : state.bossDefeated ? "Defeated" : "Dormant"}</strong></div>
     <div class="status-row"><span>Current vulnerability</span><strong>${currentAnimal().vulnerability}</strong></div>
-    <div class="status-row"><span>Objective</span><strong>${state.victory ? "Reach the exit" : "Find the next cage"}</strong></div>
+    <div class="status-row"><span>Objective</span><strong>${state.victory ? "Reach the exit" : state.boss ? "Defeat the boss" : finalLockedCage() ? "Last cage is locked" : "Find the next cage"}</strong></div>
   `;
 }
 
